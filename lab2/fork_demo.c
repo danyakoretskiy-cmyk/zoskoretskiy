@@ -4,12 +4,12 @@
 #include <signal.h>
 #include <sys/wait.h>
 
-int got_int = 0;
-int got_term = 0;
+volatile sig_atomic_t got_int = 0;
+volatile sig_atomic_t got_term = 0;
 
 void exit_message()
 {
-    printf("Process exiting\n");
+    printf("Process %d exiting\n", getpid());
 }
 
 void int_handler(int sig)
@@ -28,36 +28,58 @@ int main()
     int status;
     struct sigaction sa;
 
-    atexit(exit_message);
+    if (atexit(exit_message) != 0) {
+        printf("atexit error\n");
+        return 1;
+    }
 
-    signal(SIGINT, int_handler);
+    if (signal(SIGINT, int_handler) == SIG_ERR) {
+        perror("signal");
+        return 1;
+    }
 
     sa.sa_handler = term_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    sigaction(SIGTERM, &sa, NULL);
+
+    if (sigaction(SIGTERM, &sa, NULL) == -1) {
+        perror("sigaction");
+        return 1;
+    }
 
     pid = fork();
 
+    if (pid == -1) {
+        perror("fork");
+        return 1;
+    }
+
     if (pid == 0) {
-        printf("Child PID = %d\n", getpid());
+        printf("Child PID = %d, PPID = %d\n",
+               getpid(), getppid());
 
         sleep(5);
 
         if (got_int)
-            printf("Received SIGINT\n");
+            printf("Child received SIGINT (%d)\n", got_int);
 
         if (got_term)
-            printf("Received SIGTERM\n");
+            printf("Child received SIGTERM (%d)\n", got_term);
 
         return 5;
     }
     else {
-        printf("Parent PID = %d\n", getpid());
+        printf("Parent PID = %d, PPID = %d\n",
+               getpid(), getppid());
 
-        wait(&status);
+        printf("Waiting for child\n");
 
-        printf("Child exit code = %d\n", status);
+        waitpid(pid, &status, 0);
+
+        if (WIFEXITED(status)) {
+            printf("Child exit code = %d\n",
+                   WEXITSTATUS(status));
+        }
     }
 
     return 0;
