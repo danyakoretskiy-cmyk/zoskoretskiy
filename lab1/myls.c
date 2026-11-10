@@ -50,7 +50,7 @@ const char *color(mode_t m)
     return "";
 }
 
-void print_one(struct item *x, int longmode)
+void print_one(struct item *x, int longmode, int numeric_ids)
 {
     const char *col = color(x->st.st_mode);
 
@@ -64,6 +64,11 @@ void print_one(struct item *x, int longmode)
 
     struct passwd *pw = getpwuid(x->st.st_uid);
     struct group *gr = getgrgid(x->st.st_gid);
+    char uid_buf[32], gid_buf[32];
+    snprintf(uid_buf, sizeof(uid_buf), "%lu", (unsigned long)x->st.st_uid);
+    snprintf(gid_buf, sizeof(gid_buf), "%lu", (unsigned long)x->st.st_gid);
+    const char *owner = (!numeric_ids && pw) ? pw->pw_name : uid_buf;
+    const char *group = (!numeric_ids && gr) ? gr->gr_name : gid_buf;
     char t[64];
     struct tm *tm = localtime(&x->st.st_mtime);
     strftime(t, sizeof(t), "%b %e %H:%M", tm);
@@ -71,8 +76,8 @@ void print_one(struct item *x, int longmode)
     printf("%s %2lu %s %s %6ld %s %s%s\033[0m",
            p,
            (unsigned long)x->st.st_nlink,
-           pw ? pw->pw_name : "?",
-           gr ? gr->gr_name : "?",
+           owner,
+           group,
            (long)x->st.st_size,
            t,
            col,
@@ -84,9 +89,10 @@ void print_one(struct item *x, int longmode)
 
 int main(int argc, char **argv)
 {
-    int a = 0, l = 0, c;
-    while ((c = getopt(argc, argv, "la")) != -1) {
+    int a = 0, l = 0, numeric_ids = 0, c;
+    while ((c = getopt(argc, argv, "lan")) != -1) {
         if (c == 'l') l = 1;
+        else if (c == 'n') { numeric_ids = 1; l = 1; }
         else if (c == 'a') a = 1;
         else return 1;
     }
@@ -109,7 +115,7 @@ int main(int argc, char **argv)
             ssize_t n = readlink(path, x.linkto, sizeof(x.linkto) - 1);
             if (n >= 0) x.linkto[n] = '\0';
         }
-        print_one(&x, l);
+        print_one(&x, l, numeric_ids);
         if (!l) printf("\n");
         return 0;
     }
@@ -157,7 +163,7 @@ int main(int argc, char **argv)
     qsort(arr, n, sizeof(*arr), cmp);
 
     if (l) printf("total %ld\n", total / 2);
-    for (int i = 0; i < n; i++) print_one(&arr[i], l);
+    for (int i = 0; i < n; i++) print_one(&arr[i], l, numeric_ids);
     if (!l) printf("\n");
 
     free(arr);
