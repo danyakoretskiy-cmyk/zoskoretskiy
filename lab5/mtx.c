@@ -1,99 +1,66 @@
+#define _GNU_SOURCE
 #include <stdio.h>
-#include <string.h>
 #include <pthread.h>
-
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <time.h>
-#endif
+#include <string.h>
 
-#define READER_COUNT 10
-#define MAX_RECORDS 10
+#define READERS 10
+#define RECORDS 10
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-char data[80] = "Record 0";
-int stopped = 0;
+char shared_array[128] = "Record 0";
 
-void delay_ms(int ms)
-{
-#ifdef _WIN32
-    Sleep(ms);
-#else
-    struct timespec ts = {ms / 1000, (ms % 1000) * 1000000L};
-    nanosleep(&ts, NULL);
-#endif
-}
-
-unsigned long get_thread_id(void)
-{
-#ifdef _WIN32
-    return (unsigned long)GetCurrentThreadId();
-#else
-    return (unsigned long)syscall(SYS_gettid);
-#endif
-}
-
-void *writer(void *arg)
-{
+void *writer_thread(void *arg) {
     (void)arg;
-    for (int i = 1; i <= MAX_RECORDS; i++) {
+    for (int i = 1; i <= RECORDS; i++) {
         pthread_mutex_lock(&mutex);
-        snprintf(data, sizeof(data), "Record %d", i);
+        snprintf(shared_array, sizeof(shared_array), "Record %d", i);
         pthread_mutex_unlock(&mutex);
-        delay_ms(200);
+        usleep(200000);
     }
-    pthread_mutex_lock(&mutex);
-    stopped = 1;
-    pthread_mutex_unlock(&mutex);
     return NULL;
 }
 
-void *reader(void *arg)
-{
-    int number = *(int *)arg;
-    int done;
-    char copy[80];
-    unsigned long tid = get_thread_id();
+void *reader_thread(void *arg) {
+    int id = *(int *)arg;
+    char copy[128];
+    int number;
 
     do {
         pthread_mutex_lock(&mutex);
-        strcpy(copy, data);
-        done = stopped;
+        strcpy(copy, shared_array);
+        sscanf(copy, "Record %d", &number);
         pthread_mutex_unlock(&mutex);
-        printf("Reader %2d | TID: %lu | %s\n", number, tid, copy);
-        delay_ms(250);
-    } while (!done);
+
+        printf("Reader %d | TID: %ld | %s\n", id, syscall(SYS_gettid), copy);
+        usleep(100000);
+    } while (number < RECORDS);
+
     return NULL;
 }
 
-int main(void)
-{
-    pthread_t writer_id;
-    pthread_t reader_ids[READER_COUNT];
-    int numbers[READER_COUNT];
-    int count = 0;
-    int rc = pthread_create(&writer_id, NULL, writer, NULL);
-    if (rc != 0) {
-        fprintf(stderr, "pthread_create: %s\n", strerror(rc));
+int main(void) {
+    pthread_t writer, readers[READERS];
+    int ids[READERS];
+
+    for (int i = 0; i < READERS; i++) {
+        ids[i] = i + 1;
+        if (pthread_create(&readers[i], NULL, reader_thread, &ids[i]) != 0) {
+            fprintf(stderr, "Error creating reader\n");
+            return 1;
+        }
+    }
+
+    if (pthread_create(&writer, NULL, writer_thread, NULL) != 0) {
+        fprintf(stderr, "Error creating writer\n");
         return 1;
     }
 
-    for (int i = 0; i < READER_COUNT; i++) {
-        numbers[i] = i + 1;
-        rc = pthread_create(&reader_ids[i], NULL, reader, &numbers[i]);
-        if (rc != 0) {
-            fprintf(stderr, "pthread_create: %s\n", strerror(rc));
-            break;
-        }
-        count++;
-    }
+    pthread_join(writer, NULL);
+    for (int i = 0; i < READERS; i++)
+        pthread_join(readers[i], NULL);
 
-    pthread_join(writer_id, NULL);
-    for (int i = 0; i < count; i++)
-        pthread_join(reader_ids[i], NULL);
     pthread_mutex_destroy(&mutex);
-    return count == READER_COUNT ? 0 : 1;
+    return 0;
 }
