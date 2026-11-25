@@ -1,15 +1,11 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <time.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <semaphore.h>
-#include <string.h>
+
 
 typedef struct {
-    sem_t lock;
-    int ready;
     int running;
     char text[128];
 } SharedData;
@@ -17,7 +13,7 @@ typedef struct {
 int main(void) {
     int fd = shm_open("/lab7_clock", O_RDWR, 0666);
     if (fd == -1) {
-        printf("Сначала запустите передающую программу\n");
+        printf("Start writer first\n");
         return 1;
     }
 
@@ -29,32 +25,10 @@ int main(void) {
         return 1;
     }
 
-    printf("Принимающая программа запущена. PID: %ld\n", (long)getpid());
-    while (!data->ready) {
-        usleep(100000);
-    }
+    printf("Reader PID: %ld\n", (long)getpid());
 
-    while (1) {
-        char message[128];
-        int running;
-        time_t now = time(NULL);
-        struct tm *t = localtime(&now);
-        char clock_text[32];
-        strftime(clock_text, sizeof(clock_text), "%H:%M:%S", t);
-
-        sem_wait(&data->lock);
-        strcpy(message, data->text);
-        running = data->running;
-        sem_post(&data->lock);
-
-        if (!running) {
-            printf("Передающая программа завершилась\n");
-            break;
-        }
-
-        printf("Мое время: %s, мой PID: %ld | Получено: %s\n",
-               clock_text, (long)getpid(), message);
-        fflush(stdout);
+    while (data->running) {
+        printf("Received: %s\n", data->text);
         sleep(1);
     }
 

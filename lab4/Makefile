@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -pthread
+CFLAGS = -Wall -Wextra -std=gnu11
 
 all: writer reader
 
@@ -11,3 +11,5 @@ reader: reader.c
 
 clean:
 	rm -f writer reader
+
+.PHONY: all clean
